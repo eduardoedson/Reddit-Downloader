@@ -1,0 +1,21 @@
+body {
+  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  width: 280px;
+  margin: 0;
+  padding: 14px;
+  background: #fff;
+  color: #0f1419;
+}
+
+h1 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+p {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #536471;
+  margin: 0;
+}

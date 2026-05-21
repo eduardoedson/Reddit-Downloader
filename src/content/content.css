@@ -1,0 +1,101 @@
+
+.rdt-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px 10px 12px;
+  margin-top: 4px;
+  position: static;
+  pointer-events: auto;
+}
+
+.rdt-btn-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+  flex: 0 0 auto;
+  position: static;
+  pointer-events: auto;
+}
+
+.rdt-bottom-bar .rdt-btn-wrap {
+  margin-left: 0;
+}
+
+.rdt-overlay-target {
+  display: none;
+}
+
+.rdt-btn-wrap--overlay {
+  display: inline-flex;
+  margin-left: 0;
+  position: static;
+  pointer-events: auto;
+}
+
+.rdt-btn {
+  min-width: 92px;
+  height: 36px;
+  border: 0;
+  cursor: pointer;
+  padding: 0 14px;
+  border-radius: 9999px;
+  color: rgb(0, 186, 124);
+  background-color: rgba(255, 255, 255, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+	background-color 0.15s ease,
+	color 0.15s ease,
+	opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rdt-btn:hover {
+  background-color: rgba(0, 186, 124, 0.14);
+  color: rgb(0, 186, 124);
+}
+
+.rdt-btn:focus-visible {
+  outline: 2px solid rgb(0, 186, 124);
+  outline-offset: 2px;
+}
+
+.rdt-btn:disabled {
+  pointer-events: none;
+}
+
+.rdt-btn--loading {
+  color: rgb(0, 186, 124);
+  opacity: 0.75;
+  cursor: wait;
+}
+
+.rdt-btn--ok {
+  color: rgb(140, 86, 217);
+}
+
+.rdt-btn--ok:hover {
+  background-color: rgba(140, 86, 217, 0.14);
+  color: rgb(140, 86, 217);
+}
+
+.rdt-btn--error {
+  color: rgb(244, 33, 46);
+}
+
+.rdt-btn--error:hover {
+  background-color: rgba(244, 33, 46, 0.14);
+  color: rgb(244, 33, 46);
+}
+
+
