@@ -5,6 +5,8 @@ const POST_SELECTOR =
 
 let redditModuleStarted = false;
 
+const injectedPosts = new WeakSet<HTMLElement>();
+
 interface RedditMediaItem {
   url: string;
   type: 'video' | 'photo';
@@ -442,14 +444,14 @@ function getBestPreviewImage(preview: RedditPreviewJson | null | undefined): str
 function getGalleryImageUrl(metadata: RedditMediaMetadataJson | undefined): string | null {
   if (!metadata) return null;
 
-  if (metadata.s?.mp4) return metadata.s.mp4;
-  if (metadata.s?.gif) return metadata.s.gif;
-  if (metadata.s?.u) return metadata.s.u;
+  const raw =
+    metadata.s?.mp4 ||
+    metadata.s?.gif ||
+    metadata.s?.u ||
+    metadata.p?.[metadata.p.length - 1]?.u ||
+    null;
 
-  const previews = metadata.p || [];
-  const largestPreview = previews[previews.length - 1];
-
-  return largestPreview?.u || null;
+  return raw ? decodeHtmlUrl(raw) : null;
 }
 
 function collectMediaFromPostJson(json: RedditPostJson): RedditMediaItem[] {
@@ -474,7 +476,7 @@ function collectMediaFromPostJson(json: RedditPostJson): RedditMediaItem[] {
       if (!item.media_id) continue;
 
       const metadata = json.media_metadata[item.media_id];
-      const galleryUrl = getGalleryImageUrl(metadata);
+      const galleryUrl = getGalleryImageUrl(metadata); // já decodificado
 
       if (!galleryUrl) continue;
 
@@ -524,7 +526,7 @@ async function fetchPostJsonMedia(post: HTMLElement): Promise<RedditPostMedia | 
 
   try {
     const response = await fetch(jsonUrl.toString(), {
-      credentials: 'omit',
+      credentials: 'include',
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
@@ -534,6 +536,16 @@ async function fetchPostJsonMedia(post: HTMLElement): Promise<RedditPostMedia | 
     if (!response.ok) return null;
 
     const payload = (await response.json()) as unknown;
+
+    if (
+      payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload) &&
+      ((payload as Record<string, unknown>).error ||
+        (payload as Record<string, unknown>).reason)
+    ) {
+      return null;
+    }
 
     const listing = Array.isArray(payload)
       ? (payload[0] as RedditListingResponse | undefined)
@@ -559,6 +571,52 @@ async function fetchPostJsonMedia(post: HTMLElement): Promise<RedditPostMedia | 
   }
 }
 
+
+function collectRedgifsMedia(post: HTMLElement): RedditPostMedia | null {
+  const postId = getPostId(post);
+
+  if (!postId) return null;
+
+  const media = new Map<string, RedditMediaItem>();
+
+  const iframes = post.querySelectorAll<HTMLIFrameElement>('iframe');
+
+  for (const iframe of Array.from(iframes)) {
+    const src = iframe.src || iframe.getAttribute('src') || '';
+
+    if (src.includes('redgifs')) {
+      media.set(src, {
+        url: src,
+        type: 'video',
+      });
+    }
+  }
+
+  const links = post.querySelectorAll<HTMLAnchorElement>('a[href]');
+
+  for (const link of Array.from(links)) {
+    const href = link.href;
+
+    if (href.includes('redgifs.com')) {
+      media.set(href, {
+        url: href,
+        type: 'video',
+      });
+    }
+  }
+
+  const items = Array.from(media.values());
+
+  if (items.length === 0) return null;
+
+  return {
+    postId,
+    author: getAuthor(post),
+    media: items,
+  };
+}
+
+
 async function collectPostMedia(post: HTMLElement): Promise<RedditPostMedia | null> {
   const jsonMedia = await fetchPostJsonMedia(post);
 
@@ -573,6 +631,12 @@ async function collectPostMedia(post: HTMLElement): Promise<RedditPostMedia | nu
     }
 
     return jsonMedia;
+  }
+
+  const redgifsMedia = collectRedgifsMedia(post);
+
+  if (redgifsMedia && redgifsMedia.media.length > 0) {
+    return redgifsMedia;
   }
 
   const domMedia = collectPostMediaFromDom(post);
@@ -866,11 +930,17 @@ function insertIntoActionBar(actionBar: HTMLElement, wrap: HTMLElement): boolean
 function injectButton(post: HTMLElement) {
   const ancestorPost = post.parentElement?.closest<HTMLElement>(POST_SELECTOR);
 
-  if (ancestorPost?.querySelector('[data-rdt-injected="1"]')) return;
-  if (post.dataset.rdtInjected === '1') return;
-  if (post.querySelector('[data-rdt-injected="1"]')) return;
+  if (ancestorPost && injectedPosts.has(ancestorPost)) return;
+  if (injectedPosts.has(post)) return;
 
-  post.dataset.rdtInjected = '1';
+  const alreadyInjected = post.querySelector('[data-rdt-injected="1"]');
+
+  if (alreadyInjected) {
+    injectedPosts.add(post);
+    return;
+  }
+
+  injectedPosts.add(post);
 
   const wrap = document.createElement('div');
 
@@ -939,8 +1009,11 @@ export function initRedditModule() {
     return;
   }
 
+  let scanTimer: ReturnType<typeof setTimeout> | null = null;
+
   const observer = new MutationObserver(() => {
-    scan();
+    if (scanTimer) clearTimeout(scanTimer);
+    scanTimer = setTimeout(scan, 300);
   });
 
   observer.observe(document.body, {
@@ -949,7 +1022,4 @@ export function initRedditModule() {
   });
 
   scan();
-
-  window.setInterval(scan, 1500);
 }
-
