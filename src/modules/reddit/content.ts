@@ -30,6 +30,7 @@ interface RedditPostJson {
   id?: string;
   author?: string;
   url?: string;
+  url_overridden_by_dest?: string;
   permalink?: string;
   is_video?: boolean;
   post_hint?: string;
@@ -43,6 +44,7 @@ interface RedditPostJson {
     }>;
   };
   media_metadata?: Record<string, RedditMediaMetadataJson>;
+  crosspost_parent_list?: RedditPostJson[];
 }
 
 interface RedditMediaJson {
@@ -51,6 +53,10 @@ interface RedditMediaJson {
     dash_url?: string;
     hls_url?: string;
     scrubber_media_url?: string;
+  };
+  oembed?: {
+    html?: string;
+    provider_name?: string;
   };
 }
 
@@ -133,6 +139,30 @@ function isMediaHost(rawUrl: string): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+function isRedgifsUrl(rawUrl: string): boolean {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+
+    return host === 'redgifs.com' || host.endsWith('.redgifs.com');
+  } catch {
+    return false;
+  }
+}
+
+function normalizeRedgifsUrl(rawUrl: string): string | null {
+  const url = normalizeMediaUrl(rawUrl);
+
+  if (!url || !isRedgifsUrl(url)) return null;
+
+  try {
+    const match = new URL(url).pathname.match(/^\/(?:watch|ifr)\/([a-z0-9_-]+)/i);
+
+    return match ? `https://www.redgifs.com/watch/${match[1].toLowerCase()}` : null;
+  } catch {
+    return null;
   }
 }
 
@@ -461,6 +491,29 @@ function collectMediaFromPostJson(json: RedditPostJson): RedditMediaItem[] {
   addMediaItem(media, json.secure_media?.reddit_video?.fallback_url, 'video');
   addMediaItem(media, json.preview?.reddit_video_preview?.fallback_url, 'video');
 
+  const redgifsCandidates = [
+    json.url_overridden_by_dest,
+    json.url,
+    extractRedgifsUrlFromOembed(json.secure_media?.oembed?.html),
+    extractRedgifsUrlFromOembed(json.media?.oembed?.html),
+  ];
+
+  for (const candidate of redgifsCandidates) {
+    if (!candidate) continue;
+
+    const url = normalizeRedgifsUrl(candidate);
+
+    if (url && !media.has(url)) {
+      media.set(url, { url, type: 'video' });
+    }
+  }
+
+  const redgifsVideos = Array.from(media.values()).filter((item) => isRedgifsUrl(item.url));
+
+  // Reddit can expose its own playable preview alongside the original RedGifs
+  // post. They represent the same clip, and the preview may redirect to HTML.
+  if (redgifsVideos.length > 0) return redgifsVideos;
+
   if (json.url && isMediaHost(json.url) && (json.is_video || isLikelyVideoUrl(json.url))) {
     addMediaItem(media, json.url, 'video');
   }
@@ -470,6 +523,18 @@ function collectMediaFromPostJson(json: RedditPostJson): RedditMediaItem[] {
   if (videos.length > 0) {
     return videos;
   }
+
+  for (const crosspost of json.crosspost_parent_list || []) {
+    const crosspostMedia = collectMediaFromPostJson(crosspost);
+
+    for (const item of crosspostMedia) {
+      media.set(item.url, item);
+    }
+  }
+
+  const crosspostVideos = Array.from(media.values()).filter((item) => item.type === 'video');
+
+  if (crosspostVideos.length > 0) return crosspostVideos;
 
   if (json.gallery_data?.items?.length && json.media_metadata) {
     for (const item of json.gallery_data.items) {
@@ -511,6 +576,16 @@ function collectMediaFromPostJson(json: RedditPostJson): RedditMediaItem[] {
   }
 
   return finalItems.filter((item) => item.type === 'photo');
+}
+
+function extractRedgifsUrlFromOembed(html: string | undefined): string | null {
+  if (!html) return null;
+
+  const match = decodeHtmlUrl(html).match(
+    /https?:\/\/(?:www\.)?redgifs\.com\/(?:ifr|watch)\/[a-z0-9_-]+/i,
+  );
+
+  return match?.[0] || null;
 }
 
 async function fetchPostJsonMedia(post: HTMLElement): Promise<RedditPostMedia | null> {
@@ -583,10 +658,11 @@ function collectRedgifsMedia(post: HTMLElement): RedditPostMedia | null {
 
   for (const iframe of Array.from(iframes)) {
     const src = iframe.src || iframe.getAttribute('src') || '';
+    const url = normalizeRedgifsUrl(src);
 
-    if (src.includes('redgifs')) {
-      media.set(src, {
-        url: src,
+    if (url) {
+      media.set(url, {
+        url,
         type: 'video',
       });
     }
@@ -595,11 +671,11 @@ function collectRedgifsMedia(post: HTMLElement): RedditPostMedia | null {
   const links = post.querySelectorAll<HTMLAnchorElement>('a[href]');
 
   for (const link of Array.from(links)) {
-    const href = link.href;
+    const url = normalizeRedgifsUrl(link.href);
 
-    if (href.includes('redgifs.com')) {
-      media.set(href, {
-        url: href,
+    if (url) {
+      media.set(url, {
+        url,
         type: 'video',
       });
     }
@@ -857,8 +933,14 @@ function createButton(post: HTMLElement): HTMLButtonElement {
       return;
     }
 
-    const downloadableMedia = media.media.some((item) => item.type === 'video')
-      ? media.media.filter((item) => item.type === 'video')
+    const videoItems = media.media.filter((item) => item.type === 'video');
+    const redgifsVideo = videoItems.find((item) => isRedgifsUrl(item.url));
+
+    // A Reddit video post represents one clip, but the page can expose several
+    // URLs for it (original, preview, iframe and redirect). Sending all of them
+    // creates duplicate downloads and can save a redirect page as .htm.
+    const downloadableMedia = videoItems.length > 0
+      ? [redgifsVideo || videoItems[0]]
       : media.media;
 
     const total = downloadableMedia.length;

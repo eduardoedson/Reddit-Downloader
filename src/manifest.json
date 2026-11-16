@@ -37,6 +37,8 @@
     "https://i.redd.it/*",
     "https://v.redd.it/*",
     "https://preview.redd.it/*",
-    "https://external-preview.redd.it/*"
+    "https://external-preview.redd.it/*",
+    "https://redgifs.com/*",
+    "https://*.redgifs.com/*"
   ]
 }
